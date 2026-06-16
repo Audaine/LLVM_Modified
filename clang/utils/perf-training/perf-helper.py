@@ -57,6 +57,74 @@ def merge(args):
     parser.add_argument("--sample", action="store_true", help="Sample profile")
     opts = parser.parse_args(args)
 
+    # Custom PGO training compilations using the instrumented compiler
+    bin_dir = os.path.dirname(opts.profdata)
+    build_dir = os.path.dirname(bin_dir)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    llvm_project_dir = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+
+    clang_cpp = None
+    candidate_pgo_clang = os.path.join(build_dir, "tools", "clang", "stage2-instrumented-bins", "bin", "clang++")
+    if os.path.exists(candidate_pgo_clang):
+        clang_cpp = candidate_pgo_clang
+    elif opts.paths:
+        p = opts.paths[0]
+        while p and p != os.path.dirname(p):
+            test_bin = os.path.join(p, "bin", "clang++")
+            if os.path.exists(test_bin):
+                clang_cpp = test_bin
+                break
+            p = os.path.dirname(p)
+
+    if not clang_cpp:
+        clang_cpp = os.path.join(bin_dir, "clang++")
+
+    if os.path.exists(clang_cpp) and opts.paths:
+        print("Found instrumented compiler at:", clang_cpp)
+        print("LLVM project source dir:", llvm_project_dir)
+        print("Build dir:", build_dir)
+
+        candidate_files = [
+            "llvm/lib/Support/CommandLine.cpp",
+            "llvm/lib/Support/APFloat.cpp",
+            "llvm/lib/Support/StringRef.cpp",
+            "clang/lib/AST/ASTContext.cpp"
+        ]
+
+        temp_out_dir = tempfile.mkdtemp()
+        try:
+            for cfile in candidate_files:
+                try:
+                    abs_cfile = os.path.join(llvm_project_dir, cfile)
+                    if os.path.exists(abs_cfile):
+                        ii_path = os.path.join(temp_out_dir, os.path.basename(cfile).replace(".cpp", ".ii"))
+                        cmd_prep = [
+                            clang_cpp,
+                            "-E",
+                            "-I", os.path.join(llvm_project_dir, "llvm", "include"),
+                            "-I", os.path.join(build_dir, "include"),
+                            "-I", os.path.join(llvm_project_dir, "clang", "include"),
+                            "-I", os.path.join(build_dir, "tools", "clang", "include"),
+                            "-I", os.path.join(llvm_project_dir, "libc"),
+                            abs_cfile,
+                            "-o", ii_path
+                        ]
+                        print("Preprocessing for PGO:", " ".join(cmd_prep))
+                        subprocess.run(cmd_prep, check=True)
+
+                        for opt_flag in ["-O0", "-O2", "-O3", "-O3 -mllvm -polly"]:
+                            profile_dir = opts.paths[0]
+                            env_copy = os.environ.copy()
+                            env_copy["LLVM_PROFILE_FILE"] = os.path.join(profile_dir, "custom-pgo-%m.profraw")
+                            cmd_comp = [clang_cpp, "-c", ii_path, "-o", os.path.join(temp_out_dir, "temp.o")]
+                            cmd_comp.extend(shlex.split(opt_flag))
+                            print(f"Compiling {os.path.basename(cfile)} with {opt_flag}...")
+                            subprocess.run(cmd_comp, env=env_copy)
+                except Exception as e:
+                    print(f"Warning: Custom PGO profiling failed for {cfile}:", e)
+        finally:
+            shutil.rmtree(temp_out_dir, ignore_errors=True)
+
     cmd = [opts.profdata, "merge", "-o", opts.output]
     if opts.sample:
         cmd += ["--sample"]
@@ -64,6 +132,7 @@ def merge(args):
         cmd.extend(findFilesWithExtension(path, "profraw"))
     subprocess.check_call(cmd)
     return 0
+
 
 
 def merge_fdata(args):
@@ -695,6 +764,62 @@ def bolt_optimize(args):
     for line in process.stdout:
         sys.stdout.write(line)
     process.check_returncode()
+
+    # Custom BOLT training compilations using the instrumented clang-bolt.inst binary
+    if opts.method == "INSTRUMENT" and inputs and instrumented_outputs:
+        clang_ref = inputs[0]
+        clang_bolt_inst = instrumented_outputs[0]
+        if os.path.exists(clang_ref) and os.path.exists(clang_bolt_inst):
+            print("Running custom BOLT workload...")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            llvm_project_dir = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+            build_dir = os.path.dirname(os.path.dirname(clang_ref))
+
+            candidate_files = [
+                "llvm/lib/Support/CommandLine.cpp",
+                "llvm/lib/Support/APFloat.cpp",
+                "llvm/lib/Support/StringRef.cpp",
+                "clang/lib/AST/ASTContext.cpp"
+            ]
+
+            temp_out_dir = tempfile.mkdtemp()
+            try:
+                for cfile in candidate_files:
+                    try:
+                        abs_cfile = os.path.join(llvm_project_dir, cfile)
+                        if os.path.exists(abs_cfile):
+                            ii_path = os.path.join(temp_out_dir, os.path.basename(cfile).replace(".cpp", ".ii"))
+                            cmd_prep = [
+                                clang_ref,
+                                "--driver-mode=g++",
+                                "-E",
+                                "-I", os.path.join(llvm_project_dir, "llvm", "include"),
+                                "-I", os.path.join(build_dir, "include"),
+                                "-I", os.path.join(llvm_project_dir, "clang", "include"),
+                                "-I", os.path.join(build_dir, "tools", "clang", "include"),
+                                "-I", os.path.join(llvm_project_dir, "libc"),
+                                abs_cfile,
+                                "-o", ii_path
+                            ]
+                            print("Preprocessing for BOLT:", " ".join(cmd_prep))
+                            subprocess.run(cmd_prep, check=True)
+
+                            for opt_flag in ["-O0", "-O2", "-O3", "-O3 -mllvm -polly"]:
+                                cmd_comp = [
+                                    clang_bolt_inst,
+                                    "--driver-mode=g++",
+                                    "-c",
+                                    ii_path,
+                                    "-o",
+                                    os.path.join(temp_out_dir, "temp.o")
+                                ]
+                                cmd_comp.extend(shlex.split(opt_flag))
+                                print(f"Compiling for BOLT: {os.path.basename(cfile)} with {opt_flag}...")
+                                subprocess.run(cmd_comp, env=environ)
+                    except Exception as e:
+                        print(f"Warning: Custom BOLT profiling failed for {cfile}:", e)
+            finally:
+                shutil.rmtree(temp_out_dir, ignore_errors=True)
 
     if opts.method in ["PERF", "LBR"]:
         args = [opts.bolt, opts.perf_training_binary_dir, opts.input]
