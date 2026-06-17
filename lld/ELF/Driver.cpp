@@ -1879,9 +1879,8 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
                      << arg->getValue() << "'";
     parallel::strategy = hardware_concurrency(threads);
     ctx.arg.thinLTOJobs = v;
-  } else if (parallel::strategy.compute_thread_count() > 16) {
-    Log(ctx) << "set maximum concurrency to 16, specify --threads= to change";
-    parallel::strategy = hardware_concurrency(16);
+  } else if (parallel::strategy.compute_thread_count() > 64) {
+    parallel::strategy = hardware_concurrency(64);
   }
   if (auto *arg = args.getLastArg(OPT_thinlto_jobs_eq))
     ctx.arg.thinLTOJobs = arg->getValue();

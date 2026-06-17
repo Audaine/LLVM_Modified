@@ -45,6 +45,9 @@ set(LLVM_TARGETS_TO_BUILD Native CACHE STRING "")
 set(CLANG_ENABLE_BOOTSTRAP ON CACHE BOOL "")
 set(STAGE1_PROJECTS "clang;lld")
 set(STAGE1_RUNTIMES "compiler-rt;libcxx;libcxxabi;libunwind")
+set(LLVM_ENABLE_PLUGINS OFF CACHE BOOL "Disable plugins to prevent allocator mismatch" FORCE)
+set(LLVM_LINK_LLVM_SHLIB OFF CACHE BOOL "Disable shared LLVM library" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
 
 set(CLANG_BOOTSTRAP_TARGETS
   generate-profdata
@@ -72,6 +75,10 @@ set(LLVM_ENABLE_PROJECTS ${STAGE1_PROJECTS} CACHE STRING "")
 set(LIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY ON CACHE STRING "")
 
 # Stage 2 and Final Stage (Stage 3) Common Config
+set_instrument_and_final_stage_var(LLVM_ENABLE_PLUGINS "OFF" BOOL)
+set_instrument_and_final_stage_var(LLVM_LINK_LLVM_SHLIB "OFF" BOOL)
+set_instrument_and_final_stage_var(BUILD_SHARED_LIBS "OFF" BOOL)
+
 set_instrument_and_final_stage_var(CMAKE_POSITION_INDEPENDENT_CODE "ON" STRING)
 set_instrument_and_final_stage_var(CMAKE_C_FLAGS "-march=native -mtune=native -O3" STRING)
 set_instrument_and_final_stage_var(CMAKE_CXX_FLAGS "-march=native -mtune=native -O3" STRING)

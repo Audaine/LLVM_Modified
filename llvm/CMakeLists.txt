@@ -1414,6 +1414,20 @@ foreach( binding ${LLVM_BINDINGS_LIST} )
   endif()
 endforeach()
 
+# Add mimalloc as a subdirectory to compile it under LLVM with LLD
+set(MI_SECURE OFF CACHE BOOL "Disable security features like guard pages" FORCE)
+set(MI_DEBUG OFF CACHE BOOL "Disable debug assertions" FORCE)
+set(MI_PADDING OFF CACHE BOOL "Disable allocation padding" FORCE)
+set(MI_STATS OFF CACHE BOOL "Disable statistic collection" FORCE)
+set(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library" FORCE)
+set(MI_BUILD_STATIC ON CACHE BOOL "Build static library" FORCE)
+set(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library" FORCE)
+set(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables" FORCE)
+set(MI_OVERRIDE ON CACHE BOOL "Override standard malloc" FORCE)
+add_subdirectory("/home/audaine/Documents/proj/mimalloc" "${CMAKE_BINARY_DIR}/mimalloc" EXCLUDE_FROM_ALL)
+set_target_properties(mimalloc-static PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
+link_libraries(mimalloc-static)
+
 add_subdirectory(projects)
 
 if( LLVM_INCLUDE_TOOLS )
